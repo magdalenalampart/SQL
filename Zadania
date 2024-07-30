@@ -1,0 +1,90 @@
+1)	Połącz tabele ODM_CUSTOMERS i ODM_ACCOUNTS zgodnie ze schematem
+Select
+c.sycu_id,
+c.cust_busi_id,
+c.cust_gend_tx,
+c.cust_cate_tx,
+c.cust_segm_tx,
+a.acco_id,
+a.acco_busi_id,
+a.acco_acti_fl,
+a.acco_mota_crea_dt,
+a.acco_mota_clos_dt,
+a.acco_sour_tx
+From odm_customers c
+Inner Join odm_accounts a
+Using (sycu_id);
+
+2)	Do zapytania utworzonego w pierwszym zadaniu zastosuj filtry (wszystkie cztery warunki powinny zostać spełnione jednocześnie):
+•	Segment klienta tylko ‘Os. Prywatna’ lub ‘SOHO’
+•	Spółka konta ma być równa ‘N’ lub ID biznesowy konta ma nie zaczynać się od 33
+•	Data zamknięcia ostatniego zadania Modyfikacja Home/Modyfikacja SohoSme ma być późniejsza niż czerwiec 2017
+•	Tylko aktywni klienci
+Select
+c.sycu_id,
+c.cust_busi_id,
+c.cust_gend_tx,
+c.cust_cate_tx,
+c.cust_segm_tx,
+a.acco_id,
+a.acco_busi_id,
+a.acco_acti_fl,
+a.acco_mota_crea_dt,
+a.acco_mota_clos_dt,
+a.acco_sour_tx
+From odm_customers c
+Inner Join odm_accounts a
+Using (sycu_id)
+Where c.cust_segm_tx In('Os. Prywatna', 'SOHO')
+And (a.acco_sour_tx = 'N' Or a.acco_busi_id Not Like '33%') 
+And a.acco_mota_clos_dt > '2017-06-30'
+And a.acco_acti_fl = 1;
+
+3)	Do wyniku pkt 2 dołącz ODM_CONTACT_DATA tak, aby do każdego konta dopasować najnowszy wpis o danych kontaktowych, jeśli istnieje.
+Zwróć wyniki (spełnij jak najwięcej warunków):
+•	W postaci 1 rekord per konto
+•	Zestaw kolumn (aliasy dowolne, kolejność wymagana):
+i)	Id klienta
+ii)	Id konta
+iii)	Id biznesowe konta
+iv)	Segment klienta
+v)	Telefon kontaktowy: pierwszy znaleziony w kolejności 
+telefon->telefon alternatywny->komórka->’Brak’.
+vi)	Miesiąc zamknięcia ostatniego zadania Modyfikacja Home/SohoSme 
+vii)	Przetłumaczona spółka konta: N->Netia, D->Dialog, reszta->Inne
+viii)	Znacznik (0/1) czy ostatnie zadanie Modyfikacji Home/SohoSme zostało zamkniete w bieżącym roku
+ix)	Licznik ile kont zostało znalezionych w obrębie tego klienta
+•	Posortuj dane po kolumnie z segmentem (malejąco) i przetłumaczoną spółką (rosnąco)
+With Najnowsze_Dane_Kontaktowe As (
+	Select cont.sycu_id,
+		cont.acco_id,
+		Coalesce(cont.coda_pho1_tx, cont.coda_pho2_tx, cont.coda_mobi_tx, 'Brak') as Tel_Kont,
+		Row_number() Over (Partition by cont.acco_id Order By cont.coda_sequ_nm DESC) as Ranking_Danych_Kontaktowych
+	From odm_contact_data cont )
+Select
+	c.sycu_id as id_klienta,
+	a.acco_id as id_konta,
+	a.acco_busi_id as id_biznesowe_konta,
+	c.cust_segm_tx as segment_klienta,
+	Coalesce(Najnowsze_Dane_Kontaktowe.Tel_Kont, 'Brak') as telefon_kontaktowy,
+	To_char(a.acco_mota_crea_dt, 'Month' a miesiąc_zamknięcia_zadania,
+	Case
+		When a.acco_sour_tx = 'N' Then 'Netia'
+		When a.acco_sour_tx = 'D' Then 'Dialog'
+		Else 'Inne'
+		End przetłumaczona_spółka,
+	Case
+		When a.acco_mota_clos_dt >= date_trunc('year', current_date) Then 1
+		Else 0
+		End znacznik_zamknięcia_zadania,
+	Count(*) Over(Partiton by c.sycu_id) as licznik_kont_klienta
+From odm_customers c
+Inner Join odm_accounts a Using (sycu_id)
+Left Join Najnowsze_Dane_Kontaktowe Using (acco_id)
+Where c.cust_segm_tx In('Os. Prywatna', 'SOHO')
+	And (a.acco_sour_tx = 'N' Or a.acco_busi_id Not Like '33%') 
+	And a.acco_mota_clos_dt > '2017-06-30'
+	And a.acco_acti_fl = 1,
+	And cont.Ranking_Danych_Kontaktowych = 1
+Order by segment_klienta DESC,
+   	 przetłumaczona_spółka ASC;
